@@ -1,0 +1,13 @@
+# Repo-specific Claude Context ignore patterns.
+.git/**
+.beads/**
+.venv/**
+.pytest_cache/**
+.ruff_cache/**
+**/__pycache__/**
+**/node_modules/**
+**/target/**
+**/dist/**
+**/build/**
+**/coverage/**
+uv.lock
