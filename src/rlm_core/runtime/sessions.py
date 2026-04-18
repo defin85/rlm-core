@@ -9,6 +9,8 @@ from rlm_core.adapters.contracts import HelperMap, RepositoryDescriptor
 from rlm_core.index.contracts import IndexCapabilityMatrix
 from rlm_core.workspace import WorkspaceRef
 
+from .sandbox import RuntimeSandbox
+
 
 class RuntimeSessionError(RuntimeError):
     """Raised when a runtime session cannot be resolved."""
@@ -25,6 +27,7 @@ class RuntimeSession:
     capabilities: IndexCapabilityMatrix
     helpers: dict[str, object]
     strategy: str
+    sandbox: RuntimeSandbox | None = None
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "helpers", dict(self.helpers))
@@ -45,6 +48,7 @@ class RuntimeSessionManager:
         capabilities: IndexCapabilityMatrix,
         helpers: HelperMap,
         strategy: str,
+        sandbox: RuntimeSandbox | None = None,
     ) -> RuntimeSession:
         session = RuntimeSession(
             session_id=uuid4().hex,
@@ -54,6 +58,7 @@ class RuntimeSessionManager:
             capabilities=capabilities,
             helpers=dict(helpers),
             strategy=strategy,
+            sandbox=sandbox,
         )
         self._sessions[session.session_id] = session
         return session

@@ -5,11 +5,14 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Mapping, Sequence
 
+from rlm_core.adapters.contracts import RepositoryDescriptor
 from rlm_core.adapters import AdapterRegistry, HelperContext, StrategyContext
 from rlm_core.index.contracts import IndexCapabilityMatrix, IndexLifecycleAction
 from rlm_core.index.manager import IndexManager
 from rlm_core.workspace import InMemoryWorkspaceRegistry, WorkspaceRef, WorkspaceRegistry, WorkspaceSource
 
+from .helpers import make_runtime_helpers
+from .sandbox import RuntimeSandbox
 from .sessions import RuntimeSessionManager
 
 _MUTATING_ACTIONS = frozenset(
@@ -70,14 +73,14 @@ class CoreRuntime:
     def __init__(
         self,
         *,
-        adapter_registry: AdapterRegistry,
+        adapter_registry: AdapterRegistry | None = None,
         workspace_registry: WorkspaceRegistry | None = None,
         index_manager: IndexManager | None = None,
         session_manager: RuntimeSessionManager | None = None,
     ) -> None:
-        self._adapter_registry = adapter_registry
+        self._adapter_registry = adapter_registry or AdapterRegistry()
         self._workspace_registry = workspace_registry or InMemoryWorkspaceRegistry()
-        self._index_manager = index_manager or IndexManager(adapter_registry)
+        self._index_manager = index_manager or IndexManager(self._adapter_registry)
         self._session_manager = session_manager or RuntimeSessionManager()
 
     def rlm_start(
@@ -97,38 +100,60 @@ class CoreRuntime:
             adapter_id=adapter_id,
             metadata=metadata,
         )
-        selected_adapter = self._adapter_registry.select(workspace, adapter_id=self._preferred_adapter_id(workspace, adapter_id))
-        descriptor = selected_adapter.describe_repo(workspace)
-        helpers = selected_adapter.register_helpers(HelperContext(workspace=workspace, descriptor=descriptor))
-        strategy = selected_adapter.build_strategy(
-            query,
-            StrategyContext(workspace=workspace, descriptor=descriptor, capabilities=selected_adapter.capabilities),
+        adapter = self._select_adapter(workspace, adapter_id=adapter_id)
+        descriptor, capabilities, helper_map, resolve_safe, strategy, session_adapter_id = self._build_session_context(
+            workspace=workspace,
+            adapter=adapter,
+            query=query,
         )
+        sandbox = RuntimeSandbox(base_path=workspace.root_path, helpers=helper_map, resolve_safe=resolve_safe)
         session = self._session_manager.create(
             workspace=workspace,
-            adapter_id=selected_adapter.adapter_id,
+            adapter_id=session_adapter_id,
             descriptor=descriptor,
-            capabilities=selected_adapter.capabilities,
-            helpers=helpers,
+            capabilities=capabilities,
+            helpers=sandbox.helpers,
             strategy=strategy,
+            sandbox=sandbox,
         )
         return RlmStartResponse(
             session_id=session.session_id,
             workspace=workspace,
-            adapter_id=selected_adapter.adapter_id,
+            adapter_id=session_adapter_id,
             descriptor=descriptor.details,
-            capabilities=selected_adapter.capabilities,
-            helper_names=tuple(sorted(helpers)),
+            capabilities=capabilities,
+            helper_names=tuple(sorted(sandbox.helpers)),
             strategy=strategy,
         )
 
     def rlm_execute(
         self,
         session_id: str,
-        helper_name: str,
+        helper_name: str | None = None,
         arguments: Mapping[str, object] | Sequence[object] | object | None = None,
+        *,
+        code: str | None = None,
     ) -> RlmExecuteResponse:
         session = self._session_manager.get(session_id)
+        if code is not None:
+            if helper_name is not None:
+                raise ValueError("Provide either helper_name or code, not both")
+            if session.sandbox is None:
+                raise RuntimeError(f"Sandbox not available for session {session_id}")
+            result = session.sandbox.execute(code)
+            return RlmExecuteResponse(
+                session_id=session_id,
+                helper_name="__code__",
+                result={
+                    "stdout": result.stdout,
+                    "error": result.error,
+                    "variables": list(result.variables),
+                    "helper_calls": [{"name": call.name, "elapsed": call.elapsed} for call in result.helper_calls],
+                },
+            )
+
+        if helper_name is None:
+            raise ValueError("helper_name is required when code is not provided")
         helper = session.helpers.get(helper_name)
         if helper is None:
             raise RuntimeError(f"Unknown helper for session {session_id}: {helper_name}")
@@ -202,6 +227,47 @@ class CoreRuntime:
             adapter_hint=adapter_id,
             metadata=metadata,
         )
+
+    def _select_adapter(self, workspace: WorkspaceRef, *, adapter_id: str | None):
+        preferred_adapter_id = adapter_id or workspace.adapter_hint
+        if preferred_adapter_id is not None:
+            return self._adapter_registry.select(workspace, adapter_id=preferred_adapter_id)
+
+        matches = self._adapter_registry.matching(workspace)
+        if not matches:
+            return None
+        if len(matches) == 1:
+            return matches[0]
+        return self._adapter_registry.select(workspace)
+
+    def _build_session_context(self, *, workspace: WorkspaceRef, adapter, query: str):
+        helper_map, resolve_safe = make_runtime_helpers(workspace.root_path)
+        if adapter is None:
+            descriptor = RepositoryDescriptor(
+                adapter_id="generic",
+                workspace_root=workspace.root_path,
+                language="generic",
+                details={"mode": "direct_path", "root_path": str(workspace.root_path)},
+            )
+            return (
+                descriptor,
+                IndexCapabilityMatrix(generic_only=True),
+                helper_map,
+                resolve_safe,
+                "generic: direct-path Python sandbox exploration",
+                "generic",
+            )
+
+        descriptor = adapter.describe_repo(workspace)
+        adapter_helpers = adapter.register_helpers(HelperContext(workspace=workspace, descriptor=descriptor))
+        capabilities = adapter.capabilities
+        strategy = adapter.build_strategy(
+            query,
+            StrategyContext(workspace=workspace, descriptor=descriptor, capabilities=capabilities),
+        )
+        combined_helpers = dict(helper_map)
+        combined_helpers.update(adapter_helpers)
+        return descriptor, capabilities, combined_helpers, resolve_safe, strategy, adapter.adapter_id
 
     @staticmethod
     def _preferred_adapter_id(workspace: WorkspaceRef, adapter_id: str | None) -> str | None:
