@@ -1,1 +1,51 @@
-"""Index package for shared lifecycle contracts and orchestration."""
+"""Index package for shared lifecycle contracts, model, and orchestration."""
+
+from .contracts import (
+    AdapterIndexHooks,
+    IndexBuildRequest,
+    IndexCapabilityMatrix,
+    IndexLifecycleAction,
+    IndexOperationResult,
+    IndexOperationStatus,
+    IndexStatus,
+)
+from .model import (
+    AdapterMetadataRecord,
+    CallRecord,
+    DefinitionRecord,
+    DiagnosticRecord,
+    FileRecord,
+    GenericIndexReader,
+    GenericIndexSnapshot,
+    GenericIndexWriter,
+    ImportRecord,
+    InMemoryGenericIndexStore,
+    IndexEntityKind,
+    ReferenceRecord,
+    SourceSpan,
+    SymbolRecord,
+)
+
+__all__ = [
+    "AdapterIndexHooks",
+    "AdapterMetadataRecord",
+    "CallRecord",
+    "DefinitionRecord",
+    "DiagnosticRecord",
+    "FileRecord",
+    "GenericIndexReader",
+    "GenericIndexSnapshot",
+    "GenericIndexWriter",
+    "ImportRecord",
+    "IndexBuildRequest",
+    "IndexCapabilityMatrix",
+    "IndexEntityKind",
+    "IndexLifecycleAction",
+    "IndexOperationResult",
+    "IndexOperationStatus",
+    "IndexStatus",
+    "InMemoryGenericIndexStore",
+    "ReferenceRecord",
+    "SourceSpan",
+    "SymbolRecord",
+]
