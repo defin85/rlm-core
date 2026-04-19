@@ -44,21 +44,25 @@ class BslRepositoryAdapter:
     def register_helpers(self, context: HelperContext):
         details = dict(context.descriptor.details)
         features = sorted(context.descriptor.details.get("indexed_features", []) or self.capabilities.adapter_features)
+        index_snapshot = self._index_hooks.load_snapshot(context.workspace)
         helpers = {
             "bsl_repo_details": lambda: dict(details),
             "bsl_index_features": lambda: list(features),
         }
-        helpers.update(make_bsl_live_helpers(context.workspace.root_path))
+        helpers.update(make_bsl_live_helpers(context.workspace.root_path, index_snapshot=index_snapshot))
         return helpers
 
     def build_strategy(self, query: str, context: StrategyContext) -> str:
         feature_list = ", ".join(sorted(context.capabilities.adapter_features))
         normalized_query = query.strip() or "inspect bsl repository"
+        index_ready = self._index_hooks.load_snapshot(context.workspace) is not None
+        workflow_label = "INDEXED WORKFLOW" if index_ready else "LIVE WORKFLOW"
         return (
             f"bsl:{normalized_query} [indexed_features={feature_list}]\n"
-            "LIVE WORKFLOW:\n"
+            f"{workflow_label}:\n"
             "- BROWSE: bsl_find_by_type('Documents'), bsl_find_by_type('CommonModules')\n"
             "- NAVIGATE: bsl_find_modules('ObjectName')\n"
+            "- TRACE: bsl_find_callers('ProcedureName')\n"
             "- READ: bsl_extract_procedures(path), bsl_read_procedure(path, 'ProcedureName'), read_file(path)\n"
         )
 

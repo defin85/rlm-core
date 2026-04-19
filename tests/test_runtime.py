@@ -39,7 +39,27 @@ def _build_bsl_live_fixture(workspace_root):
         encoding="utf-8",
     )
 
+    common_module = workspace_root / "CommonModules" / "CommonServer" / "Ext" / "Module.bsl"
+    common_module.parent.mkdir(parents=True)
+    common_module.write_text(
+        "Процедура ПодготовитьДвижения() Экспорт\n"
+        "КонецПроцедуры\n",
+        encoding="utf-8",
+    )
+
     return object_module.relative_to(workspace_root).as_posix()
+
+
+def _apply_index_only_changes(workspace_root):
+    object_module = workspace_root / "Documents" / "SalesOrder" / "Ext" / "ObjectModule.bsl"
+    object_module.write_text(
+        object_module.read_text(encoding="utf-8")
+        + "\n"
+        + "Процедура ДопПроверка()\n"
+        + "    ПодготовитьДвижения();\n"
+        + "КонецПроцедуры\n",
+        encoding="utf-8",
+    )
 
 
 def test_runtime_routes_start_execute_and_end_for_direct_path(tmp_path):
@@ -101,6 +121,33 @@ def test_runtime_routes_index_actions_through_core_services(tmp_path):
     assert built.status is IndexOperationStatus.COMPLETED
     assert status.available is True
     assert status.details["adapter_id"] == "bsl"
+
+
+def test_runtime_prefers_indexed_bsl_workflow_after_prebuilt_build(tmp_path):
+    workspace_root = tmp_path / "bsl-indexed"
+    workspace_root.mkdir()
+    object_module_path = _build_bsl_live_fixture(workspace_root)
+    runtime = CoreRuntime(adapter_registry=AdapterRegistry([BslRepositoryAdapter()]))
+
+    built = runtime.rlm_index(IndexLifecycleAction.BUILD, root_path=str(workspace_root))
+    _apply_index_only_changes(workspace_root)
+    started = runtime.rlm_start(root_path=str(workspace_root), query="trace posting logic")
+    procedures = runtime.rlm_execute(
+        started.session_id,
+        "bsl_extract_procedures",
+        {"path": object_module_path},
+    )
+    callers = runtime.rlm_execute(
+        started.session_id,
+        "bsl_find_callers",
+        {"name": "ПодготовитьДвижения"},
+    )
+
+    assert built.status is IndexOperationStatus.COMPLETED
+    assert "bsl_find_callers" in started.helper_names
+    assert "INDEXED WORKFLOW" in started.strategy
+    assert [item["name"] for item in procedures.result] == ["ОбработкаПроведения"]
+    assert callers.result["_meta"]["total_callers"] == 1
 
 
 def test_runtime_enforces_confirmation_policy_for_registry_mutations(tmp_path):

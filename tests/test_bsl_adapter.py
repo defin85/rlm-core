@@ -74,6 +74,27 @@ def _build_live_bsl_fixture(workspace_root):
     return object_module.relative_to(workspace_root).as_posix()
 
 
+def _apply_post_build_changes(workspace_root):
+    object_module = workspace_root / "Documents" / "SalesOrder" / "Ext" / "ObjectModule.bsl"
+    object_module.write_text(
+        object_module.read_text(encoding="utf-8")
+        + "\n"
+        + "Процедура ДопПроверка()\n"
+        + "    ПодготовитьДвижения();\n"
+        + "КонецПроцедуры\n",
+        encoding="utf-8",
+    )
+
+    audit_form = workspace_root / "Documents" / "SalesOrder" / "Forms" / "AuditForm" / "Ext" / "Form" / "Module.bsl"
+    audit_form.parent.mkdir(parents=True)
+    audit_form.write_text(
+        "Процедура ПриСозданииНаСервере()\n"
+        "    ПодготовитьДвижения();\n"
+        "КонецПроцедуры\n",
+        encoding="utf-8",
+    )
+
+
 def test_bsl_detection_reports_adapter_owned_repository_details(tmp_path):
     workspace_root = tmp_path / "wrapper"
     config_root = workspace_root / "src"
@@ -137,6 +158,86 @@ def test_bsl_live_helpers_support_navigation_and_targeted_code_reading(tmp_path)
     assert procedures[0]["line"] == 1
     assert procedure_body is not None
     assert "ПодготовитьДвижения();" in procedure_body
+
+
+def test_bsl_index_lifecycle_build_info_and_update_refresh_snapshot(tmp_path):
+    workspace_root = tmp_path / "indexed"
+    workspace_root.mkdir()
+    _build_live_bsl_fixture(workspace_root)
+
+    workspace = WorkspaceRef(root_path=workspace_root, source=WorkspaceSource.DIRECT_PATH)
+    adapter = BslRepositoryAdapter()
+    manager = IndexManager(AdapterRegistry([adapter]))
+
+    built = manager.build(workspace)
+    status = manager.info(workspace)
+
+    manifest_path = workspace_root / ".rlm" / "indexes" / "bsl" / "manifest.json"
+    snapshot_path = workspace_root / ".rlm" / "indexes" / "bsl" / "snapshot.json"
+
+    assert built.status is IndexOperationStatus.COMPLETED
+    assert manifest_path.is_file()
+    assert snapshot_path.is_file()
+    assert status.available is True
+    assert status.stale is False
+    assert status.details["module_count"] == 4
+    assert status.details["procedure_count"] == 4
+    assert status.details["call_count"] == 2
+
+    _apply_post_build_changes(workspace_root)
+    updated = manager.update(workspace)
+    refreshed = manager.info(workspace)
+
+    assert updated.status is IndexOperationStatus.COMPLETED
+    assert updated.details["built_at"] == built.details["built_at"]
+    assert refreshed.details["module_count"] == 5
+    assert refreshed.details["procedure_count"] == 6
+    assert refreshed.details["call_count"] == 4
+
+
+def test_bsl_indexed_helpers_stay_on_snapshot_until_index_update(tmp_path):
+    workspace_root = tmp_path / "indexed-helpers"
+    workspace_root.mkdir()
+    object_module_path = _build_live_bsl_fixture(workspace_root)
+
+    workspace = WorkspaceRef(root_path=workspace_root, source=WorkspaceSource.DIRECT_PATH)
+    adapter = BslRepositoryAdapter()
+    manager = IndexManager(AdapterRegistry([adapter]))
+
+    manager.build(workspace)
+    _apply_post_build_changes(workspace_root)
+
+    descriptor = adapter.describe_repo(workspace)
+    helpers = adapter.register_helpers(HelperContext(workspace=workspace, descriptor=descriptor))
+
+    snapshot_modules = helpers["bsl_find_modules"]("SalesOrder")
+    snapshot_procedures = helpers["bsl_extract_procedures"](object_module_path)
+    snapshot_callers = helpers["bsl_find_callers"]("ПодготовитьДвижения")
+    snapshot_body = helpers["bsl_read_procedure"](object_module_path, "ДопПроверка")
+
+    assert sorted(item["module_type"] for item in snapshot_modules) == ["FormModule", "ManagerModule", "ObjectModule"]
+    assert [item["name"] for item in snapshot_procedures] == ["ОбработкаПроведения"]
+    assert snapshot_callers["_meta"]["total_callers"] == 1
+    assert snapshot_body is None
+
+    manager.update(workspace)
+    refreshed_helpers = adapter.register_helpers(HelperContext(workspace=workspace, descriptor=descriptor))
+
+    refreshed_modules = refreshed_helpers["bsl_find_modules"]("SalesOrder")
+    refreshed_procedures = refreshed_helpers["bsl_extract_procedures"](object_module_path)
+    refreshed_callers = refreshed_helpers["bsl_find_callers"]("ПодготовитьДвижения")
+    refreshed_body = refreshed_helpers["bsl_read_procedure"](object_module_path, "ДопПроверка")
+
+    assert sorted(item["module_type"] for item in refreshed_modules) == [
+        "FormModule",
+        "FormModule",
+        "ManagerModule",
+        "ObjectModule",
+    ]
+    assert [item["name"] for item in refreshed_procedures] == ["ОбработкаПроведения", "ДопПроверка"]
+    assert refreshed_callers["_meta"]["total_callers"] == 3
+    assert refreshed_body is not None
+    assert "ПодготовитьДвижения();" in refreshed_body
 
 
 @dataclass
