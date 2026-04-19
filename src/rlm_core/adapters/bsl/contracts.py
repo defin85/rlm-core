@@ -24,19 +24,31 @@ class BslIndexedFeature(StrEnum):
     """BSL-specific indexed features owned by the adapter."""
 
     METADATA = "metadata"
-    FORMS = "forms"
-    EXTENSION_OVERRIDES = "extension_overrides"
-    FTS = "fts"
+    CALLER_GRAPH = "caller_graph"
+    OBJECT_ATTRIBUTES = "object_attributes"
+    PREDEFINED_ITEMS = "predefined_items"
 
 
+BSL_ADVANCED_FEATURES = frozenset(
+    {
+        BslIndexedFeature.OBJECT_ATTRIBUTES.value,
+        BslIndexedFeature.PREDEFINED_ITEMS.value,
+    }
+)
 BSL_SCHEMA_EXTENSIONS = frozenset(
     {
         BslIndexedFeature.METADATA.value,
-        BslIndexedFeature.FORMS.value,
-        BslIndexedFeature.EXTENSION_OVERRIDES.value,
+        BslIndexedFeature.CALLER_GRAPH.value,
+        *BSL_ADVANCED_FEATURES,
     }
 )
-BSL_INDEXED_FEATURES = frozenset(feature.value for feature in BslIndexedFeature)
+BSL_INDEXED_FEATURES = frozenset(
+    {
+        BslIndexedFeature.METADATA.value,
+        BslIndexedFeature.CALLER_GRAPH.value,
+        *BSL_ADVANCED_FEATURES,
+    }
+)
 
 
 @dataclass(frozen=True, slots=True)

@@ -4,6 +4,7 @@ from dataclasses import dataclass
 
 from rlm_core.adapters import AdapterRegistry, HelperContext
 from rlm_core.adapters.bsl import (
+    BSL_ADVANCED_FEATURES,
     BSL_SCHEMA_EXTENSIONS,
     BslConfigRole,
     BslRepositoryAdapter,
@@ -31,6 +32,115 @@ EDT_MAIN_MDO = """\
 <mdclass:Configuration xmlns:mdclass="http://g5.1c.ru/v8/dt/metadata/mdclass">
   <name>Accounting</name>
 </mdclass:Configuration>
+"""
+
+
+def _build_document_metadata_xml(*, include_comment: bool = False) -> str:
+    extra_attribute = ""
+    if include_comment:
+        extra_attribute = """\
+      <Attribute>
+        <Properties>
+          <Name>Комментарий</Name>
+          <Synonym><v8:item><v8:lang>ru</v8:lang><v8:content>Комментарий</v8:content></v8:item></Synonym>
+          <Type><v8:Type>xs:string</v8:Type></Type>
+        </Properties>
+      </Attribute>
+"""
+    return f"""\
+<MetaDataObject xmlns="http://v8.1c.ru/8.3/MDClasses" xmlns:v8="http://v8.1c.ru/8.1/data/core">
+  <Document>
+    <Properties>
+      <Name>SalesOrder</Name>
+      <Synonym><v8:item><v8:lang>ru</v8:lang><v8:content>Заказ покупателя</v8:content></v8:item></Synonym>
+    </Properties>
+    <ChildObjects>
+      <Attribute>
+        <Properties>
+          <Name>Организация</Name>
+          <Synonym><v8:item><v8:lang>ru</v8:lang><v8:content>Организация</v8:content></v8:item></Synonym>
+          <Type><v8:Type xmlns:d4p1="http://v8.1c.ru/8.1/data/enterprise/current-config">d4p1:CatalogRef.Организации</v8:Type></Type>
+        </Properties>
+      </Attribute>
+      <Attribute>
+        <Properties>
+          <Name>Сумма</Name>
+          <Synonym><v8:item><v8:lang>ru</v8:lang><v8:content>Сумма</v8:content></v8:item></Synonym>
+          <Type><v8:Type>xs:decimal</v8:Type></Type>
+        </Properties>
+      </Attribute>
+{extra_attribute}      <TabularSection>
+        <Properties>
+          <Name>Товары</Name>
+          <Synonym><v8:item><v8:lang>ru</v8:lang><v8:content>Товары</v8:content></v8:item></Synonym>
+        </Properties>
+        <ChildObjects>
+          <Attribute>
+            <Properties>
+              <Name>Номенклатура</Name>
+              <Synonym><v8:item><v8:lang>ru</v8:lang><v8:content>Номенклатура</v8:content></v8:item></Synonym>
+              <Type><v8:Type xmlns:d4p1="http://v8.1c.ru/8.1/data/enterprise/current-config">d4p1:CatalogRef.Номенклатура</v8:Type></Type>
+            </Properties>
+          </Attribute>
+        </ChildObjects>
+      </TabularSection>
+    </ChildObjects>
+  </Document>
+</MetaDataObject>
+"""
+
+
+def _build_chart_metadata_xml() -> str:
+    return """\
+<MetaDataObject xmlns="http://v8.1c.ru/8.3/MDClasses" xmlns:v8="http://v8.1c.ru/8.1/data/core">
+  <ChartOfCharacteristicTypes>
+    <Properties>
+      <Name>CostTypes</Name>
+      <Synonym><v8:item><v8:lang>ru</v8:lang><v8:content>Виды субконто</v8:content></v8:item></Synonym>
+    </Properties>
+  </ChartOfCharacteristicTypes>
+</MetaDataObject>
+"""
+
+
+def _build_predefined_xml(*, include_fixed_assets: bool = False) -> str:
+    extra_item = ""
+    if include_fixed_assets:
+        extra_item = """\
+<Item id="ccc">
+    <Name>ОсновныеСредства</Name>
+    <Code>00077</Code>
+    <Description>Основные средства</Description>
+    <Type>
+        <v8:Type xmlns:d4p1="http://v8.1c.ru/8.1/data/enterprise/current-config">d4p1:CatalogRef.ОсновныеСредства</v8:Type>
+    </Type>
+    <IsFolder>false</IsFolder>
+</Item>
+"""
+    return f"""\
+<ChartOfCharacteristicTypes xmlns="http://v8.1c.ru/8.3/MDClasses" xmlns:v8="http://v8.1c.ru/8.1/data/core">
+<PredefinedData>
+<Item id="aaa">
+    <Name>РеализуемыеАктивы</Name>
+    <Code>00055</Code>
+    <Description>Реализуемые активы</Description>
+    <Type>
+        <v8:Type xmlns:d4p1="http://v8.1c.ru/8.1/data/enterprise/current-config">d4p1:CatalogRef.Номенклатура</v8:Type>
+        <v8:Type xmlns:d4p1="http://v8.1c.ru/8.1/data/enterprise/current-config">d4p1:CatalogRef.Контрагенты</v8:Type>
+    </Type>
+    <IsFolder>false</IsFolder>
+</Item>
+<Item id="bbb">
+    <Name>ВидыДеятельности</Name>
+    <Code>00010</Code>
+    <Description>Виды деятельности</Description>
+    <Type>
+        <v8:Type xmlns:d4p1="http://v8.1c.ru/8.1/data/enterprise/current-config">d4p1:CatalogRef.ВидыДеятельности</v8:Type>
+    </Type>
+    <IsFolder>true</IsFolder>
+</Item>
+{extra_item}</PredefinedData>
+</ChartOfCharacteristicTypes>
 """
 
 
@@ -93,6 +203,26 @@ def _apply_post_build_changes(workspace_root):
         "КонецПроцедуры\n",
         encoding="utf-8",
     )
+
+
+def _add_advanced_cf_metadata(workspace_root):
+    document_xml = workspace_root / "Documents" / "SalesOrder" / "Ext" / "Document.xml"
+    document_xml.write_text(_build_document_metadata_xml(), encoding="utf-8")
+
+    chart_root = workspace_root / "ChartsOfCharacteristicTypes" / "CostTypes" / "Ext"
+    chart_root.mkdir(parents=True, exist_ok=True)
+    (chart_root / "ChartOfCharacteristicTypes.xml").write_text(_build_chart_metadata_xml(), encoding="utf-8")
+    (chart_root / "Predefined.xml").write_text(_build_predefined_xml(), encoding="utf-8")
+
+
+def _apply_advanced_metadata_changes(workspace_root):
+    document_xml = workspace_root / "Documents" / "SalesOrder" / "Ext" / "Document.xml"
+    document_xml.write_text(_build_document_metadata_xml(include_comment=True), encoding="utf-8")
+
+    predefined_xml = (
+        workspace_root / "ChartsOfCharacteristicTypes" / "CostTypes" / "Ext" / "Predefined.xml"
+    )
+    predefined_xml.write_text(_build_predefined_xml(include_fixed_assets=True), encoding="utf-8")
 
 
 def test_bsl_detection_reports_adapter_owned_repository_details(tmp_path):
@@ -238,6 +368,109 @@ def test_bsl_indexed_helpers_stay_on_snapshot_until_index_update(tmp_path):
     assert refreshed_callers["_meta"]["total_callers"] == 3
     assert refreshed_body is not None
     assert "ПодготовитьДвижения();" in refreshed_body
+
+
+def test_bsl_advanced_helpers_support_live_metadata_queries(tmp_path):
+    workspace_root = tmp_path / "advanced-live"
+    workspace_root.mkdir()
+    _build_live_bsl_fixture(workspace_root)
+    _add_advanced_cf_metadata(workspace_root)
+
+    workspace = WorkspaceRef(root_path=workspace_root, source=WorkspaceSource.DIRECT_PATH)
+    adapter = BslRepositoryAdapter()
+    descriptor = adapter.describe_repo(workspace)
+    helpers = adapter.register_helpers(HelperContext(workspace=workspace, descriptor=descriptor))
+
+    features = helpers["bsl_advanced_features"]()
+    attrs = helpers["bsl_find_attributes"](object_name="Documents/SalesOrder")
+    ts_attrs = helpers["bsl_find_attributes"](object_name="Documents/SalesOrder", kind="ts_attribute")
+    predefined = helpers["bsl_find_predefined"](name="РеализуемыеАктивы")
+
+    assert features == sorted(BSL_ADVANCED_FEATURES)
+    assert [item["attr_name"] for item in attrs] == ["Организация", "Сумма", "Номенклатура"]
+    assert attrs[0]["attr_type"] == ["CatalogRef.Организации"]
+    assert attrs[1]["attr_type"] == ["Number"]
+    assert ts_attrs == [
+        {
+            "object_name": "SalesOrder",
+            "category": "Documents",
+            "attr_name": "Номенклатура",
+            "attr_synonym": "Номенклатура",
+            "attr_type": ["CatalogRef.Номенклатура"],
+            "attr_kind": "ts_attribute",
+            "ts_name": "Товары",
+        }
+    ]
+    assert predefined == [
+        {
+            "object_name": "CostTypes",
+            "category": "ChartsOfCharacteristicTypes",
+            "item_name": "РеализуемыеАктивы",
+            "item_synonym": "Реализуемые активы",
+            "item_code": "00055",
+            "types": ["CatalogRef.Номенклатура", "CatalogRef.Контрагенты"],
+            "is_folder": False,
+        }
+    ]
+
+
+def test_bsl_advanced_helpers_use_index_snapshot_until_update(tmp_path):
+    workspace_root = tmp_path / "advanced-indexed"
+    workspace_root.mkdir()
+    _build_live_bsl_fixture(workspace_root)
+    _add_advanced_cf_metadata(workspace_root)
+
+    workspace = WorkspaceRef(root_path=workspace_root, source=WorkspaceSource.DIRECT_PATH)
+    adapter = BslRepositoryAdapter()
+    manager = IndexManager(AdapterRegistry([adapter]))
+
+    built = manager.build(workspace)
+    status = manager.info(workspace)
+
+    advanced_path = workspace_root / ".rlm" / "indexes" / "bsl" / "advanced.json"
+    assert built.status is IndexOperationStatus.COMPLETED
+    assert advanced_path.is_file()
+    assert status.details["advanced_features"] == sorted(BSL_ADVANCED_FEATURES)
+    assert status.details["object_attribute_count"] == 3
+    assert status.details["predefined_item_count"] == 2
+
+    _apply_advanced_metadata_changes(workspace_root)
+
+    descriptor = adapter.describe_repo(workspace)
+    helpers = adapter.register_helpers(HelperContext(workspace=workspace, descriptor=descriptor))
+
+    assert helpers["bsl_find_attributes"](name="Комментарий") == []
+    assert helpers["bsl_find_predefined"](name="ОсновныеСредства") == []
+
+    updated = manager.update(workspace)
+    refreshed = manager.info(workspace)
+    refreshed_helpers = adapter.register_helpers(HelperContext(workspace=workspace, descriptor=descriptor))
+
+    assert updated.status is IndexOperationStatus.COMPLETED
+    assert refreshed.details["object_attribute_count"] == 4
+    assert refreshed.details["predefined_item_count"] == 3
+    assert refreshed_helpers["bsl_find_attributes"](name="Комментарий") == [
+        {
+            "object_name": "SalesOrder",
+            "category": "Documents",
+            "attr_name": "Комментарий",
+            "attr_synonym": "Комментарий",
+            "attr_type": ["String"],
+            "attr_kind": "attribute",
+            "ts_name": None,
+        }
+    ]
+    assert refreshed_helpers["bsl_find_predefined"](name="ОсновныеСредства") == [
+        {
+            "object_name": "CostTypes",
+            "category": "ChartsOfCharacteristicTypes",
+            "item_name": "ОсновныеСредства",
+            "item_synonym": "Основные средства",
+            "item_code": "00077",
+            "types": ["CatalogRef.ОсновныеСредства"],
+            "is_folder": False,
+        }
+    ]
 
 
 @dataclass

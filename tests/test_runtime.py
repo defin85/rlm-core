@@ -19,6 +19,46 @@ CF_MAIN_XML = """\
 """
 
 
+def _build_document_metadata_xml() -> str:
+    return """\
+<MetaDataObject xmlns="http://v8.1c.ru/8.3/MDClasses" xmlns:v8="http://v8.1c.ru/8.1/data/core">
+  <Document>
+    <Properties>
+      <Name>SalesOrder</Name>
+      <Synonym><v8:item><v8:lang>ru</v8:lang><v8:content>Заказ покупателя</v8:content></v8:item></Synonym>
+    </Properties>
+    <ChildObjects>
+      <Attribute>
+        <Properties>
+          <Name>Организация</Name>
+          <Synonym><v8:item><v8:lang>ru</v8:lang><v8:content>Организация</v8:content></v8:item></Synonym>
+          <Type><v8:Type xmlns:d4p1="http://v8.1c.ru/8.1/data/enterprise/current-config">d4p1:CatalogRef.Организации</v8:Type></Type>
+        </Properties>
+      </Attribute>
+    </ChildObjects>
+  </Document>
+</MetaDataObject>
+"""
+
+
+def _build_predefined_xml() -> str:
+    return """\
+<ChartOfCharacteristicTypes xmlns="http://v8.1c.ru/8.3/MDClasses" xmlns:v8="http://v8.1c.ru/8.1/data/core">
+<PredefinedData>
+<Item id="aaa">
+    <Name>РеализуемыеАктивы</Name>
+    <Code>00055</Code>
+    <Description>Реализуемые активы</Description>
+    <Type>
+        <v8:Type xmlns:d4p1="http://v8.1c.ru/8.1/data/enterprise/current-config">d4p1:CatalogRef.Номенклатура</v8:Type>
+    </Type>
+    <IsFolder>false</IsFolder>
+</Item>
+</PredefinedData>
+</ChartOfCharacteristicTypes>
+"""
+
+
 def _build_bsl_live_fixture(workspace_root):
     (workspace_root / "Configuration.xml").write_text(CF_MAIN_XML, encoding="utf-8")
 
@@ -60,6 +100,15 @@ def _apply_index_only_changes(workspace_root):
         + "КонецПроцедуры\n",
         encoding="utf-8",
     )
+
+
+def _add_advanced_cf_metadata(workspace_root):
+    document_xml = workspace_root / "Documents" / "SalesOrder" / "Ext" / "Document.xml"
+    document_xml.write_text(_build_document_metadata_xml(), encoding="utf-8")
+
+    chart_root = workspace_root / "ChartsOfCharacteristicTypes" / "CostTypes" / "Ext"
+    chart_root.mkdir(parents=True, exist_ok=True)
+    (chart_root / "Predefined.xml").write_text(_build_predefined_xml(), encoding="utf-8")
 
 
 def test_runtime_routes_start_execute_and_end_for_direct_path(tmp_path):
@@ -107,6 +156,47 @@ def test_runtime_supports_bsl_live_helper_flow_without_prebuilt_index(tmp_path):
     assert {item["module_type"] for item in modules.result} == {"ManagerModule", "ObjectModule"}
     assert procedures.result[0]["name"] == "ОбработкаПроведения"
     assert "ПодготовитьДвижения();" in procedure_body.result
+
+
+def test_runtime_surfaces_advanced_bsl_helpers_via_adapter_layer(tmp_path):
+    workspace_root = tmp_path / "bsl-advanced"
+    workspace_root.mkdir()
+    _build_bsl_live_fixture(workspace_root)
+    _add_advanced_cf_metadata(workspace_root)
+    runtime = CoreRuntime(adapter_registry=AdapterRegistry([BslRepositoryAdapter()]))
+
+    started = runtime.rlm_start(root_path=str(workspace_root), query="inspect advanced metadata")
+    advanced_features = runtime.rlm_execute(started.session_id, "bsl_advanced_features")
+    attrs = runtime.rlm_execute(started.session_id, "bsl_find_attributes", {"name": "Организация"})
+    predefined = runtime.rlm_execute(started.session_id, "bsl_find_predefined", {"name": "РеализуемыеАктивы"})
+
+    assert "bsl_advanced_features" in started.helper_names
+    assert "bsl_find_attributes" in started.helper_names
+    assert "bsl_find_predefined" in started.helper_names
+    assert "LIVE WORKFLOW" in started.strategy
+    assert advanced_features.result == ["object_attributes", "predefined_items"]
+    assert attrs.result == [
+        {
+            "object_name": "SalesOrder",
+            "category": "Documents",
+            "attr_name": "Организация",
+            "attr_synonym": "Организация",
+            "attr_type": ["CatalogRef.Организации"],
+            "attr_kind": "attribute",
+            "ts_name": None,
+        }
+    ]
+    assert predefined.result == [
+        {
+            "object_name": "CostTypes",
+            "category": "ChartsOfCharacteristicTypes",
+            "item_name": "РеализуемыеАктивы",
+            "item_synonym": "Реализуемые активы",
+            "item_code": "00055",
+            "types": ["CatalogRef.Номенклатура"],
+            "is_folder": False,
+        }
+    ]
 
 
 def test_runtime_routes_index_actions_through_core_services(tmp_path):
@@ -199,6 +289,8 @@ def test_runtime_supports_direct_path_walking_skeleton_without_adapters(tmp_path
 
     assert started.adapter_id == "generic"
     assert "glob_files" in started.helper_names
+    assert "bsl_find_attributes" not in started.helper_names
+    assert "bsl_find_predefined" not in started.helper_names
     assert first.result["error"] is None
     assert "src/main.py" in first.result["stdout"]
     assert "VALUE = 7" in first.result["stdout"]
