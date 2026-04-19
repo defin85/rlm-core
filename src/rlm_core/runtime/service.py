@@ -24,6 +24,18 @@ _MUTATING_ACTIONS = frozenset(
 )
 
 
+def _build_generic_strategy(query: str) -> str:
+    normalized_query = query.strip() or "explore repository"
+    return (
+        f"generic:{normalized_query}\n"
+        "WORKFLOW:\n"
+        "- DISCOVER: tree('.', max_depth=2), glob_files('**/*.ext'), find_files('name')\n"
+        "- SEARCH: grep_summary('pattern', '.'), grep_read('pattern', 'src', max_files=3, context_lines=2)\n"
+        "- READ: read_file('path/to/file'), read_files([...])\n"
+        "- ITERATE: narrow broad searches to concrete files or small subdirectories\n"
+    )
+
+
 class MutationPolicyError(RuntimeError):
     """Raised when a registry-backed mutation is forbidden by policy."""
 
@@ -254,7 +266,7 @@ class CoreRuntime:
                 IndexCapabilityMatrix(generic_only=True),
                 helper_map,
                 resolve_safe,
-                "generic: direct-path Python sandbox exploration",
+                _build_generic_strategy(query),
                 "generic",
             )
 
