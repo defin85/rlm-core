@@ -4,9 +4,11 @@ import pytest
 
 from rlm_core.adapters import AdapterRegistry
 from rlm_core.adapters.bsl import BslRepositoryAdapter
+from rlm_core.adapters.go import GoRepositoryAdapter
 from rlm_core.index.contracts import IndexLifecycleAction, IndexOperationStatus
 from rlm_core.runtime import CoreRuntime, MutationConfirmationError, RuntimeSessionError
 from rlm_core.workspace import InMemoryWorkspaceRegistry
+from tests.go_fixture import build_go_fixture
 
 CF_MAIN_XML = """\
 <MetaDataObject xmlns="http://v8.1c.ru/8.3/MDClasses">
@@ -295,6 +297,52 @@ def test_runtime_supports_direct_path_walking_skeleton_without_adapters(tmp_path
     assert "src/main.py" in first.result["stdout"]
     assert "VALUE = 7" in first.result["stdout"]
     assert second.result["stdout"].strip() == "1"
+
+
+def test_runtime_routes_go_workflows_through_shared_runtime_and_lifecycle(tmp_path):
+    workspace_root = tmp_path / "go"
+    workspace_root.mkdir()
+    fixture = build_go_fixture(workspace_root)
+
+    workspace_registry = InMemoryWorkspaceRegistry()
+    workspace_registry.register(
+        "shop",
+        workspace_root,
+        display_name="Shop",
+        adapter_hint="go",
+    )
+    runtime = CoreRuntime(
+        adapter_registry=AdapterRegistry([GoRepositoryAdapter()]),
+        workspace_registry=workspace_registry,
+    )
+
+    started = runtime.rlm_start(workspace_id="shop", query="inspect handler flow")
+    packages = runtime.rlm_execute(started.session_id, "go_list_packages")
+    declarations = runtime.rlm_execute(
+        started.session_id,
+        "go_extract_declarations",
+        {"path": fixture["service_file"]},
+    )
+    serve_http = runtime.rlm_execute(
+        started.session_id,
+        "go_read_declaration",
+        {"path": fixture["service_file"], "name": "ServeHTTP"},
+    )
+    built = runtime.rlm_index(IndexLifecycleAction.BUILD, workspace_id="shop")
+
+    assert started.workspace.workspace_id == "shop"
+    assert started.adapter_id == "go"
+    assert started.capabilities.supported_actions == frozenset()
+    assert sorted(started.capabilities.adapter_features) == ["declarations", "imports", "packages"]
+    assert "go_list_packages" in started.helper_names
+    assert "go_extract_declarations" in started.helper_names
+    assert started.strategy.startswith("go:inspect handler flow")
+    assert "LIVE WORKFLOW" in started.strategy
+    assert {item["package"] for item in packages.result} == {"main", "service", "storage"}
+    assert [item["name"] for item in declarations.result] == ["Config", "Service", "NewService", "ServeHTTP"]
+    assert 'fmt.Fprintf(w, "ok")' in serve_http.result
+    assert built.status is IndexOperationStatus.UNSUPPORTED
+    assert built.details["supported_actions"] == []
 
 
 def test_runtime_preserves_namespace_and_releases_session_on_end(tmp_path):

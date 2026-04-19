@@ -9,6 +9,7 @@ from typing import Mapping
 
 from rlm_core.adapters import AdapterRegistry, AdapterSelectionError
 from rlm_core.adapters.bsl import BslRepositoryAdapter
+from rlm_core.adapters.go import GoRepositoryAdapter
 from rlm_core.index.contracts import IndexCapabilityMatrix, IndexLifecycleAction, IndexOperationResult, IndexStatus
 from rlm_core.index.manager import IndexManagerError
 from rlm_core.runtime import (
@@ -147,10 +148,10 @@ class PublicWaitForIndexJobRequest:
 
 
 def build_default_runtime(*, workspace_registry: WorkspaceRegistry | None = None) -> CoreRuntime:
-    """Build the default runtime with the first production adapter set."""
+    """Build the default runtime with the production adapter set."""
 
     return CoreRuntime(
-        adapter_registry=AdapterRegistry([BslRepositoryAdapter()]),
+        adapter_registry=AdapterRegistry([BslRepositoryAdapter(), GoRepositoryAdapter()]),
         workspace_registry=workspace_registry,
     )
 

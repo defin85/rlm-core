@@ -27,6 +27,7 @@ from rlm_core.public_api import (
 )
 from rlm_core.runtime import CoreRuntime
 from rlm_core.workspace import WorkspaceRef
+from tests.go_fixture import build_go_fixture
 
 
 CF_MAIN_XML = """\
@@ -295,3 +296,45 @@ def test_cli_surfaces_unsupported_capabilities_consistently(tmp_path):
     assert payload["data"]["response_type"] == "index_operation"
     assert payload["data"]["status"] == "unsupported"
     assert payload["data"]["details"]["supported_actions"] == []
+
+
+def test_public_api_default_runtime_supports_go_repositories(tmp_path):
+    workspace_root = tmp_path / "go"
+    workspace_root.mkdir()
+    fixture = build_go_fixture(workspace_root)
+
+    surface = PublicApiSurface()
+
+    started = surface.rlm_start(PublicStartRequest(root_path=str(workspace_root), query="inspect handler flow"))
+    started_payload = started.to_payload()
+    session_id = started_payload["data"]["session_id"]
+
+    executed = surface.rlm_execute(
+        PublicExecuteRequest(
+            session_id=session_id,
+            helper_name="go_read_declaration",
+            arguments={"path": fixture["service_file"], "name": "ServeHTTP"},
+        )
+    )
+    executed_payload = executed.to_payload()
+    built = surface.rlm_index(PublicIndexRequest(action="build", root_path=str(workspace_root)))
+    built_payload = built.to_payload()
+
+    assert started.ok is True
+    assert started_payload["tool_name"] == "rlm_start"
+    assert started_payload["data"]["response_type"] == "rlm_start"
+    assert started_payload["data"]["adapter_id"] == "go"
+    assert started_payload["data"]["capabilities"]["generic_only"] is False
+    assert started_payload["data"]["capabilities"]["supported_actions"] == []
+    assert started_payload["data"]["capabilities"]["adapter_features"] == ["declarations", "imports", "packages"]
+    assert started_payload["data"]["descriptor"]["module_file"] == "go.mod"
+    assert "go_list_packages" in started_payload["data"]["helper_names"]
+    assert "go_read_declaration" in started_payload["data"]["helper_names"]
+    assert started_payload["data"]["strategy"].startswith("go:inspect handler flow")
+    assert executed.ok is True
+    assert executed_payload["data"]["response_type"] == "rlm_execute"
+    assert 'fmt.Fprintf(w, "ok")' in executed_payload["data"]["result"]
+    assert built.ok is True
+    assert built_payload["data"]["response_type"] == "index_operation"
+    assert built_payload["data"]["status"] == "unsupported"
+    assert built_payload["data"]["details"]["supported_actions"] == []
