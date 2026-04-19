@@ -60,6 +60,7 @@ def build_parser() -> argparse.ArgumentParser:
     evals_parser = subparsers.add_parser("evals", help="Run repeatable quality evals on fixture repositories")
     evals_parser.add_argument("--plain-root", required=True, help="Direct-path fixture repository root")
     evals_parser.add_argument("--bsl-root", required=True, help="BSL fixture repository root")
+    evals_parser.add_argument("--go-root", help="Optional Go fixture repository root")
 
     return parser
 
@@ -144,6 +145,7 @@ def _dispatch(api: PublicApiSurface, args: argparse.Namespace) -> PublicToolResp
             run_default_quality_evals(
                 plain_root=args.plain_root,
                 bsl_root=args.bsl_root,
+                go_root=args.go_root,
                 surface=api,
             )
         )

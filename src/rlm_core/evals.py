@@ -127,7 +127,12 @@ class QualityEvalCliResponse:
         }
 
 
-def build_default_quality_eval_cases(*, plain_root: str | Path, bsl_root: str | Path) -> tuple[QualityEvalCase, ...]:
+def build_default_quality_eval_cases(
+    *,
+    plain_root: str | Path,
+    bsl_root: str | Path,
+    go_root: str | Path | None = None,
+) -> tuple[QualityEvalCase, ...]:
     """Return the default quality gate bundle used for release-candidate checks."""
 
     generic_code = (
@@ -146,7 +151,7 @@ def build_default_quality_eval_cases(*, plain_root: str | Path, bsl_root: str | 
         "callers = bsl_find_callers('ПодготовитьДвижения')\n"
         "print(callers['_meta']['total_callers'])\n"
     )
-    return (
+    cases = [
         QualityEvalCase(
             name="generic_runtime_roundtrip",
             root_path=str(Path(plain_root)),
@@ -209,19 +214,50 @@ def build_default_quality_eval_cases(*, plain_root: str | Path, bsl_root: str | 
                 max_stdout_chars=128,
             ),
         ),
-    )
+    ]
+    if go_root is not None:
+        go_live_code = (
+            "packages = go_list_packages()\n"
+            "print(len(packages))\n"
+            "print(go_find_imports(package='service', import_path='net/http')[0]['import'])\n"
+            "decls = go_extract_declarations('internal/service/service.go')\n"
+            "print(any(item['name'] == 'ServeHTTP' for item in decls))\n"
+        )
+        cases.append(
+            QualityEvalCase(
+                name="go_live_runtime_flow",
+                root_path=str(Path(go_root)),
+                query="inspect handler flow",
+                code=go_live_code,
+                expected_adapter_id="go",
+                required_session_helpers=("go_list_packages", "go_find_imports", "go_extract_declarations"),
+                required_invoked_helpers=("go_list_packages", "go_find_imports", "go_extract_declarations"),
+                required_strategy_tokens=("go:inspect handler flow", "LIVE WORKFLOW"),
+                required_stdout_tokens=("3", "net/http", "True"),
+                budget=EvalBudget(
+                    max_start_ms=5_000,
+                    max_execute_ms=1_500,
+                    max_end_ms=1_000,
+                    max_helper_calls=3,
+                    max_helper_elapsed_ms=1_000,
+                    max_stdout_chars=128,
+                ),
+            )
+        )
+    return tuple(cases)
 
 
 def run_default_quality_evals(
     *,
     plain_root: str | Path,
     bsl_root: str | Path,
+    go_root: str | Path | None = None,
     surface: PublicApiSurface | None = None,
 ) -> QualityEvalSuiteResult:
-    """Run the default repeatable quality suite against plain and BSL fixtures."""
+    """Run the default repeatable quality suite against generic and adapter fixtures."""
 
     return run_quality_eval_suite(
-        build_default_quality_eval_cases(plain_root=plain_root, bsl_root=bsl_root),
+        build_default_quality_eval_cases(plain_root=plain_root, bsl_root=bsl_root, go_root=go_root),
         surface=surface,
     )
 

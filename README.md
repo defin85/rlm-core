@@ -1,38 +1,49 @@
 # rlm-core
 
-Мультиязычное indexed RLM-ядро для MCP-сервера анализа репозиториев.
+Мультиязычное RLM-ядро для анализа репозиториев через общий runtime, adapter-owned helper-ы и единый public API.
 
-## Зачем этот репозиторий
+## Что уже реализовано
 
-`rlm-tools-bsl` уже доказал ценность двух идей:
+- `rlm_core.runtime`:
+  shared session lifecycle, sandbox execution, workspace registry, adapter selection.
+- `rlm_core.index`:
+  generic lifecycle orchestration, background jobs, locking, uniform unsupported semantics.
+- `rlm_core.public_api` и `rlm_core.cli`:
+  stable transport-neutral surface для `rlm_projects`, `rlm_start`, `rlm_execute`, `rlm_end`, `rlm_index`, `rlm_index_job`, `rlm_wait_for_index_job`.
+- `rlm_core.adapters.bsl`:
+  live helper-ы, prebuilt snapshot index, advanced metadata snapshot.
+- `rlm_core.adapters.go`:
+  live-only helper surface для package/import/declaration workflows.
 
-1. Агент исследует репозиторий через sandboxed helper-ы, а не через сырое чтение всего дерева файлов.
-2. Предварительный локальный индекс резко ускоряет навигацию и снижает расход контекста.
+## Поддерживаемые режимы
 
-Этот репозиторий создаётся как новая база для обобщения этих идей на разные языки программирования без жёсткой привязки к 1С/BSL.
-
-## Цель
-
-Собрать `core + adapters` архитектуру:
-
-- `rlm_core` — общие сессии, sandbox, индексный runtime, helper contract, transport layer.
-- `adapters/*` — языкоспецифичные адаптеры (`bsl`, `typescript`, `go`, `rust`, `java`).
+- `generic`:
+  direct-path walking skeleton без language adapter. Доступны generic helper-ы, но index lifecycle явно `unsupported`.
+- `bsl`:
+  live navigation и prebuilt index lifecycle через adapter-owned snapshots.
+- `go`:
+  live navigation без prebuilt index. Lifecycle actions возвращают явный `unsupported`, а не adapter selection error.
 
 ## Принципы
 
-- Не смешивать generic-код с доменной логикой конкретного языка.
-- Держать базовый exploration loop совместимым с идеей upstream `rlm-tools`.
-- Индекс использовать как ускоритель и источник структурных ответов, а не как тяжёлый внешний RAG.
-- Делать helper API унифицированным по типам данных, а не по историческим именам из BSL.
+- Generic core отвечает за orchestration, а не за доменную логику языка.
+- Adapter-specific behavior surfaced через capability matrix и единые public semantics.
+- Индекс используется как ускоритель, а не как обязательный внешний сервис.
+- Unsupported behavior должен быть явным и одинаковым по форме для всех adapters.
 
-## Ближайшие шаги
+## Быстрый старт
 
-1. Выделить контракт language adapter.
-2. Спроектировать generic index schema для `files`, `symbols`, `definitions`, `references`, `calls`, `imports`.
-3. Перенести BSL как первый адаптер.
-4. Добавить второй адаптер для одного mainstream-языка.
+- Посмотреть зарегистрированные проекты:
+  `uv run rlm-core projects`
+- Запустить runtime на прямом пути:
+  `uv run rlm-core start --root-path /path/to/repo --query "inspect repo"`
+- Проверить lifecycle surface:
+  `uv run rlm-core index info --root-path /path/to/repo`
+- Прогнать quality evals:
+  `uv run rlm-core evals --plain-root /tmp/plain --bsl-root /tmp/bsl`
+- Добрать optional Go case:
+  `uv run rlm-core evals --plain-root /tmp/plain --bsl-root /tmp/bsl --go-root /tmp/go`
 
 ## Статус
 
-Репозиторий инициализирован. Реализация `core` ещё не перенесена.
-
+Текущий core и два production adapters уже в репозитории. Актуальный source of truth для архитектуры и change history лежит в `src/`, `tests/`, `docs/ARCHITECTURE.md` и `openspec/changes/`.

@@ -99,9 +99,16 @@ def test_index_manager_reports_unsupported_actions(tmp_path):
     manager = IndexManager(AdapterRegistry([adapter]))
 
     result = manager.build(workspace)
+    info = manager.info(workspace)
 
     assert result.status is IndexOperationStatus.UNSUPPORTED
+    assert result.details["adapter_id"] == "live-only"
     assert result.details["reason"] == "capability_unsupported"
+    assert result.details["supported_actions"] == []
+    assert info.available is False
+    assert info.details["adapter_id"] == "live-only"
+    assert info.details["reason"] == "capability_unsupported"
+    assert info.details["unsupported_action"] == "info"
 
 
 def test_index_manager_tracks_background_jobs(tmp_path):

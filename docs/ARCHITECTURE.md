@@ -1,29 +1,41 @@
-# Architecture Draft
+# Architecture
 
-## Top-level shape
+## Stable layers
 
-The repository is intended to evolve into three stable layers:
+The repository now has three stable shared layers:
 
 1. `rlm_core.runtime`
-   Session manager, sandbox execution, usage tracking, transport-agnostic orchestration.
+   Session lifecycle, workspace resolution, adapter selection, sandbox execution, and mutation policy enforcement.
 2. `rlm_core.index`
-   Generic repository index, schema management, refresh/update flow, read APIs.
+   Shared lifecycle orchestration for build/update/drop/info/check, background jobs, locking, and uniform unsupported semantics.
 3. `rlm_core.adapters`
-   Per-language discovery, parsing, symbol extraction, call extraction, and specialized helper registration.
+   Language-owned repository detection, descriptor generation, helper registration, strategy text, and optional index hooks.
 
-## Adapter contract
+## Current adapter SPI
 
-Each language adapter should eventually provide:
+Each adapter integrates through the shared SPI:
 
-- `detect(path) -> bool`
-- `describe_repo(path) -> RepoDescriptor`
-- `build_index(path, writer) -> None`
+- `detect(workspace) -> bool`
+- `describe_repo(workspace) -> RepositoryDescriptor`
 - `register_helpers(context) -> dict[str, callable]`
 - `build_strategy(query, context) -> str`
+- `get_index_hooks() -> IndexHooks | None`
 
-## Target generic entities
+`get_index_hooks()` is optional by design. Live-only adapters can participate in the shared runtime without implementing prebuilt index lifecycle support.
 
-The core index should focus on generic entities first:
+## Capability model
+
+Shared behavior is driven by `IndexCapabilityMatrix`:
+
+- `generic` direct-path mode exposes shared helpers only and no adapter lifecycle actions.
+- `bsl` supports live workflows plus adapter-owned prebuilt snapshots and advanced metadata snapshots.
+- `go` supports live workflows only; lifecycle actions are surfaced as explicit `unsupported`.
+
+This is intentional. Callers should rely on shared capability semantics rather than assuming every adapter behaves like the first indexed adapter.
+
+## Generic index model
+
+The core index model stays language-neutral:
 
 - files
 - symbols
@@ -33,18 +45,26 @@ The core index should focus on generic entities first:
 - imports
 - diagnostics
 
-Language-specific metadata should live in adapter-owned tables or JSON payloads.
+Language-specific metadata stays adapter-owned inside adapter snapshots or adapter-specific payloads layered over the generic contracts.
 
-## Expected adapter strategy
+## Public surface
 
-- `bsl`: migrate current `rlm-tools-bsl` indexing and helper model into adapter form.
-- `typescript`: AST + language service hybrid.
-- `go`: AST + `gopls` integration.
-- `rust`: AST + `rust-analyzer` integration.
-- `java`: AST + `jdtls` integration.
+The stable external surface lives in `rlm_core.public_api` and `rlm_core.cli`.
 
-## Non-goals for the first phase
+Public tools:
 
-- Full cross-language symbol linking
-- Remote code indexing service
-- Embedding-based semantic search as a hard dependency
+- `rlm_projects`
+- `rlm_start`
+- `rlm_execute`
+- `rlm_end`
+- `rlm_index`
+- `rlm_index_job`
+- `rlm_wait_for_index_job`
+
+All lifecycle responses use shared status shapes. Unsupported actions must return structured `unsupported` data with explicit reasons and supported action lists instead of adapter-selection failures.
+
+## Non-goals
+
+- Cross-language symbol linking
+- Remote indexing services
+- Mandatory embedding search

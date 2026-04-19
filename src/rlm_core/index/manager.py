@@ -52,6 +52,7 @@ class IndexManager:
         return self._start_or_run(
             workspace,
             action=IndexLifecycleAction.BUILD,
+            adapter_id=adapter.adapter_id,
             capabilities=adapter.capabilities,
             background=background,
             sync_runner=lambda: adapter.get_index_hooks().build_index(IndexBuildRequest(workspace=workspace, background=False)),
@@ -63,6 +64,7 @@ class IndexManager:
         return self._start_or_run(
             workspace,
             action=IndexLifecycleAction.UPDATE,
+            adapter_id=adapter.adapter_id,
             capabilities=adapter.capabilities,
             background=background,
             sync_runner=lambda: adapter.get_index_hooks().update_index(IndexBuildRequest(workspace=workspace, background=False)),
@@ -73,21 +75,29 @@ class IndexManager:
         adapter = self._adapter_registry.select(workspace, adapter_id=adapter_id)
         hooks = adapter.get_index_hooks()
         if hooks is None or not adapter.capabilities.supports_action(IndexLifecycleAction.DROP):
-            return self._unsupported(IndexLifecycleAction.DROP, adapter.capabilities)
+            return self._unsupported(IndexLifecycleAction.DROP, adapter.capabilities, adapter_id=adapter.adapter_id)
         return self._run_locked(workspace, IndexLifecycleAction.DROP, lambda: hooks.drop_index(workspace))
 
     def info(self, workspace: WorkspaceRef, *, adapter_id: str | None = None) -> IndexStatus:
         adapter = self._adapter_registry.select(workspace, adapter_id=adapter_id)
         hooks = adapter.get_index_hooks()
         if hooks is None or not adapter.capabilities.supports_action(IndexLifecycleAction.INFO):
-            return IndexStatus(available=False, details={"unsupported_action": IndexLifecycleAction.INFO.value})
+            return self._unsupported_status(
+                IndexLifecycleAction.INFO,
+                adapter.capabilities,
+                adapter_id=adapter.adapter_id,
+            )
         return hooks.get_index_status(workspace)
 
     def check(self, workspace: WorkspaceRef, *, adapter_id: str | None = None) -> IndexStatus:
         adapter = self._adapter_registry.select(workspace, adapter_id=adapter_id)
         hooks = adapter.get_index_hooks()
         if hooks is None or not adapter.capabilities.supports_action(IndexLifecycleAction.CHECK):
-            return IndexStatus(available=False, details={"unsupported_action": IndexLifecycleAction.CHECK.value})
+            return self._unsupported_status(
+                IndexLifecycleAction.CHECK,
+                adapter.capabilities,
+                adapter_id=adapter.adapter_id,
+            )
         return hooks.get_index_status(workspace)
 
     def get_job_status(self, job_id: str) -> IndexJobStatus | None:
@@ -111,16 +121,17 @@ class IndexManager:
         workspace: WorkspaceRef,
         *,
         action: IndexLifecycleAction,
+        adapter_id: str,
         capabilities: IndexCapabilityMatrix,
         background: bool,
         sync_runner,
         async_runner,
     ) -> IndexOperationResult:
         if not capabilities.supports_action(action):
-            return self._unsupported(action, capabilities)
+            return self._unsupported(action, capabilities, adapter_id=adapter_id)
 
         if background and not capabilities.supports_background_build:
-            return self._unsupported(action, capabilities, reason="background_unsupported")
+            return self._unsupported(action, capabilities, reason="background_unsupported", adapter_id=adapter_id)
 
         if background:
             return self._start_background_job(workspace, action, async_runner)
@@ -177,12 +188,36 @@ class IndexManager:
         capabilities: IndexCapabilityMatrix,
         *,
         reason: str = "capability_unsupported",
+        adapter_id: str | None = None,
     ) -> IndexOperationResult:
+        details: dict[str, object] = {
+            "reason": reason,
+            "supported_actions": sorted(item.value for item in capabilities.supported_actions),
+        }
+        if adapter_id is not None:
+            details["adapter_id"] = adapter_id
         return IndexOperationResult(
             action=action,
             status=IndexOperationStatus.UNSUPPORTED,
-            details={
-                "reason": reason,
-                "supported_actions": sorted(item.value for item in capabilities.supported_actions),
-            },
+            details=details,
+        )
+
+    @staticmethod
+    def _unsupported_status(
+        action: IndexLifecycleAction,
+        capabilities: IndexCapabilityMatrix,
+        *,
+        reason: str = "capability_unsupported",
+        adapter_id: str | None = None,
+    ) -> IndexStatus:
+        details: dict[str, object] = {
+            "reason": reason,
+            "unsupported_action": action.value,
+            "supported_actions": sorted(item.value for item in capabilities.supported_actions),
+        }
+        if adapter_id is not None:
+            details["adapter_id"] = adapter_id
+        return IndexStatus(
+            available=False,
+            details=details,
         )

@@ -5,6 +5,7 @@ import json
 
 from rlm_core.cli import run_cli
 from rlm_core.evals import run_default_quality_evals
+from tests.go_fixture import build_go_fixture
 
 
 CF_MAIN_XML = """\
@@ -164,3 +165,40 @@ def test_cli_runs_quality_evals_with_stable_json_envelope(tmp_path):
     assert payload["data"]["response_type"] == "quality_evals"
     assert payload["data"]["case_count"] == 3
     assert all(case["passed"] for case in payload["data"]["cases"])
+
+
+def test_cli_quality_evals_accept_optional_go_fixture(tmp_path):
+    plain_root = tmp_path / "plain"
+    plain_root.mkdir()
+    _build_plain_quality_fixture(plain_root)
+
+    bsl_root = tmp_path / "bsl"
+    bsl_root.mkdir()
+    _build_bsl_quality_fixture(bsl_root)
+
+    go_root = tmp_path / "go"
+    go_root.mkdir()
+    build_go_fixture(go_root)
+
+    stdout = io.StringIO()
+    exit_code = run_cli(
+        [
+            "evals",
+            "--plain-root",
+            str(plain_root),
+            "--bsl-root",
+            str(bsl_root),
+            "--go-root",
+            str(go_root),
+        ],
+        stdout=stdout,
+    )
+    payload = json.loads(stdout.getvalue())
+    cases = {item["name"]: item for item in payload["data"]["cases"]}
+
+    assert exit_code == 0
+    assert payload["tool_name"] == "rlm_quality_evals"
+    assert payload["ok"] is True
+    assert payload["data"]["case_count"] == 4
+    assert cases["go_live_runtime_flow"]["adapter_id"] == "go"
+    assert cases["go_live_runtime_flow"]["passed"] is True

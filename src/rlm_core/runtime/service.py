@@ -10,7 +10,9 @@ from rlm_core.adapters import AdapterRegistry, HelperContext, StrategyContext
 from rlm_core.index.contracts import (
     IndexCapabilityMatrix,
     IndexLifecycleAction,
+    IndexOperationResult,
     IndexOperationStatus,
+    IndexStatus,
 )
 from rlm_core.index.manager import IndexJobStatus, IndexManager, IndexManagerError
 from rlm_core.workspace import InMemoryWorkspaceRegistry, WorkspaceRef, WorkspaceRegistry, WorkspaceSource
@@ -227,18 +229,21 @@ class CoreRuntime:
         )
         normalized_action = self._coerce_action(action)
         self._ensure_mutation_allowed(workspace, normalized_action, confirm=confirm)
-        selected_adapter = self._preferred_adapter_id(workspace, adapter_id)
+        selected_adapter = self._select_adapter(workspace, adapter_id=adapter_id)
+        if selected_adapter is None:
+            return self._unsupported_without_adapter(normalized_action)
+        selected_adapter_id = selected_adapter.adapter_id
 
         if normalized_action is IndexLifecycleAction.BUILD:
-            return self._index_manager.build(workspace, adapter_id=selected_adapter, background=background)
+            return self._index_manager.build(workspace, adapter_id=selected_adapter_id, background=background)
         if normalized_action is IndexLifecycleAction.UPDATE:
-            return self._index_manager.update(workspace, adapter_id=selected_adapter, background=background)
+            return self._index_manager.update(workspace, adapter_id=selected_adapter_id, background=background)
         if normalized_action is IndexLifecycleAction.DROP:
-            return self._index_manager.drop(workspace, adapter_id=selected_adapter)
+            return self._index_manager.drop(workspace, adapter_id=selected_adapter_id)
         if normalized_action is IndexLifecycleAction.INFO:
-            return self._index_manager.info(workspace, adapter_id=selected_adapter)
+            return self._index_manager.info(workspace, adapter_id=selected_adapter_id)
         if normalized_action is IndexLifecycleAction.CHECK:
-            return self._index_manager.check(workspace, adapter_id=selected_adapter)
+            return self._index_manager.check(workspace, adapter_id=selected_adapter_id)
         raise RuntimeError(f"Unsupported lifecycle action: {normalized_action}")
 
     def rlm_index_job(self, job_id: str) -> RlmIndexJobResponse:
@@ -310,8 +315,25 @@ class CoreRuntime:
         return descriptor, capabilities, combined_helpers, resolve_safe, strategy, adapter.adapter_id
 
     @staticmethod
-    def _preferred_adapter_id(workspace: WorkspaceRef, adapter_id: str | None) -> str | None:
-        return adapter_id or workspace.adapter_hint
+    def _unsupported_without_adapter(action: IndexLifecycleAction) -> IndexOperationResult | IndexStatus:
+        details = {
+            "adapter_id": "generic",
+            "reason": "no_adapter",
+            "supported_actions": [],
+        }
+        if action in {IndexLifecycleAction.INFO, IndexLifecycleAction.CHECK}:
+            return IndexStatus(
+                available=False,
+                details={
+                    **details,
+                    "unsupported_action": action.value,
+                },
+            )
+        return IndexOperationResult(
+            action=action,
+            status=IndexOperationStatus.UNSUPPORTED,
+            details=details,
+        )
 
     @staticmethod
     def _coerce_action(action: IndexLifecycleAction | str) -> IndexLifecycleAction:
