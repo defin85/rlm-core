@@ -2,13 +2,17 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Mapping, Sequence
 
 from rlm_core.adapters.contracts import RepositoryDescriptor
 from rlm_core.adapters import AdapterRegistry, HelperContext, StrategyContext
-from rlm_core.index.contracts import IndexCapabilityMatrix, IndexLifecycleAction
-from rlm_core.index.manager import IndexManager
+from rlm_core.index.contracts import (
+    IndexCapabilityMatrix,
+    IndexLifecycleAction,
+    IndexOperationStatus,
+)
+from rlm_core.index.manager import IndexJobStatus, IndexManager, IndexManagerError
 from rlm_core.workspace import InMemoryWorkspaceRegistry, WorkspaceRef, WorkspaceRegistry, WorkspaceSource
 
 from .helpers import make_runtime_helpers
@@ -77,6 +81,20 @@ class RlmEndResponse:
     session_id: str
     workspace: WorkspaceRef
     adapter_id: str
+
+
+@dataclass(frozen=True, slots=True)
+class RlmIndexJobResponse:
+    """Response returned by `rlm_index_job` and `rlm_wait_for_index_job`."""
+
+    job_id: str
+    workspace: WorkspaceRef
+    action: IndexLifecycleAction
+    status: IndexOperationStatus
+    details: Mapping[str, object] = field(default_factory=dict)
+
+    def __post_init__(self) -> None:
+        object.__setattr__(self, "details", dict(self.details))
 
 
 class CoreRuntime:
@@ -223,6 +241,16 @@ class CoreRuntime:
             return self._index_manager.check(workspace, adapter_id=selected_adapter)
         raise RuntimeError(f"Unsupported lifecycle action: {normalized_action}")
 
+    def rlm_index_job(self, job_id: str) -> RlmIndexJobResponse:
+        status = self._index_manager.get_job_status(job_id)
+        if status is None:
+            raise IndexManagerError(f"Unknown index job: {job_id}")
+        return self._coerce_job_status(status)
+
+    def rlm_wait_for_index_job(self, job_id: str, *, timeout: float | None = None) -> RlmIndexJobResponse:
+        status = self._index_manager.wait_for_job(job_id, timeout=timeout)
+        return self._coerce_job_status(status)
+
     def _resolve_workspace(
         self,
         *,
@@ -308,3 +336,13 @@ class CoreRuntime:
             raise MutationConfirmationError(
                 f"Mutating action {action.value} for workspace {workspace.workspace_id} requires confirmation"
             )
+
+    @staticmethod
+    def _coerce_job_status(status: IndexJobStatus) -> RlmIndexJobResponse:
+        return RlmIndexJobResponse(
+            job_id=status.job_id,
+            workspace=status.workspace,
+            action=status.action,
+            status=status.status,
+            details=status.details,
+        )

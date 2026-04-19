@@ -9,6 +9,9 @@ authors = [
 ]
 dependencies = []
 
+[project.scripts]
+rlm-core = "rlm_core.cli:main"
+
 [build-system]
 requires = ["hatchling"]
 build-backend = "hatchling.build"
@@ -28,4 +31,3 @@ pythonpath = ["src"]
 [tool.ruff]
 line-length = 120
 target-version = "py311"
-

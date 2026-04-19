@@ -6,6 +6,7 @@ from .service import (
     MutationPolicyError,
     RlmEndResponse,
     RlmExecuteResponse,
+    RlmIndexJobResponse,
     RlmStartResponse,
 )
 from .sessions import RuntimeSession, RuntimeSessionError, RuntimeSessionManager
@@ -16,6 +17,7 @@ __all__ = [
     "MutationPolicyError",
     "RlmEndResponse",
     "RlmExecuteResponse",
+    "RlmIndexJobResponse",
     "RlmStartResponse",
     "RuntimeSession",
     "RuntimeSessionError",
