@@ -7,6 +7,7 @@ import json
 import sys
 from typing import Sequence, TextIO
 
+from rlm_core.evals import QualityEvalCliResponse, run_default_quality_evals
 from rlm_core.index.contracts import IndexLifecycleAction
 from rlm_core.public_api import (
     PublicApiSurface,
@@ -56,6 +57,10 @@ def build_parser() -> argparse.ArgumentParser:
     wait_job_parser.add_argument("job_id", help="Index job ID")
     wait_job_parser.add_argument("--timeout", type=float, default=None, help="Timeout in seconds")
 
+    evals_parser = subparsers.add_parser("evals", help="Run repeatable quality evals on fixture repositories")
+    evals_parser.add_argument("--plain-root", required=True, help="Direct-path fixture repository root")
+    evals_parser.add_argument("--bsl-root", required=True, help="BSL fixture repository root")
+
     return parser
 
 
@@ -87,7 +92,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     return run_cli(argv)
 
 
-def _dispatch(api: PublicApiSurface, args: argparse.Namespace) -> PublicToolResponse:
+def _dispatch(api: PublicApiSurface, args: argparse.Namespace) -> PublicToolResponse | QualityEvalCliResponse:
     if args.command == "projects":
         return api.rlm_projects()
     if args.command == "start":
@@ -132,6 +137,14 @@ def _dispatch(api: PublicApiSurface, args: argparse.Namespace) -> PublicToolResp
             PublicWaitForIndexJobRequest(
                 job_id=args.job_id,
                 timeout_seconds=args.timeout,
+            )
+        )
+    if args.command == "evals":
+        return QualityEvalCliResponse(
+            run_default_quality_evals(
+                plain_root=args.plain_root,
+                bsl_root=args.bsl_root,
+                surface=api,
             )
         )
     raise ValueError(f"Unsupported command: {args.command}")
